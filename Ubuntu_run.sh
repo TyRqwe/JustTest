@@ -1,7 +1,6 @@
 #!/bin/bash
 set -e
 
-# Проверка аргументов
 if [ $# -ne 2 ]; then
     echo "Использование: $0 <минуты> <потоки>"
     echo "Пример: $0 10 4   # 10 минут, 4 потока"
@@ -14,17 +13,15 @@ DURATION_SEC=$((MINUTES * 60))
 DB_NAME="testdb"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
-# Проверка прав (требуется sudo для sar)
 if [ "$EUID" -ne 0 ]; then
     echo "Пожалуйста, запустите с sudo: sudo $0 $*"
     exit 1
 fi
 
-# Определение диска, на котором лежит PGDATA
 PGDATA_DIR=$(sudo -u postgres psql -t -c "SHOW data_directory;" | tr -d ' ')
 DISK_DEV=$(df -P "$PGDATA_DIR" | tail -1 | awk '{print $1}' | sed 's/[0-9]*$//' | sed 's/\/dev\///')
 if [ -z "$DISK_DEV" ]; then
-    echo "Не удалось определить диск для PGDATA, будем мониторить все диски."
+    echo "Не удалось определить диск для PGDATA, мониторим все диски."
     DISK_DEV=""
 else
     echo "Определён диск: $DISK_DEV"
@@ -36,12 +33,10 @@ echo "Количество потоков: ${THREADS}"
 echo "Диск мониторинга: ${DISK_DEV:-все}"
 echo "Временная метка: $TIMESTAMP"
 
-# Файлы для логов sar (бинарные)
 SAR_CPU_LOG="/tmp/sar_cpu_${TIMESTAMP}.bin"
 SAR_MEM_LOG="/tmp/sar_mem_${TIMESTAMP}.bin"
 SAR_DISK_LOG="/tmp/sar_disk_${TIMESTAMP}.bin"
 
-# Запуск сбора метрик в фоне
 sar -u -o "$SAR_CPU_LOG" 1 >/dev/null 2>&1 &
 PID_SAR_CPU=$!
 sar -r -o "$SAR_MEM_LOG" 1 >/dev/null 2>&1 &
@@ -49,46 +44,37 @@ PID_SAR_MEM=$!
 sar -d -p -o "$SAR_DISK_LOG" 1 >/dev/null 2>&1 &
 PID_SAR_DISK=$!
 
-# Функция остановки сбора
 stop_metrics() {
     kill $PID_SAR_CPU $PID_SAR_MEM $PID_SAR_DISK 2>/dev/null
     wait $PID_SAR_CPU $PID_SAR_MEM $PID_SAR_DISK 2>/dev/null
     sleep 1
 }
 
-# Запуск pgbench
-echo "Запуск pgbench..."
+echo "Запуск pgbench (прогресс будет появляться каждые 60 секунд)..."
 PGBENCH_OUT="/tmp/pgbench_${TIMESTAMP}.out"
-sudo -u postgres pgbench -c "$THREADS" -j "$THREADS" -T "$DURATION_SEC" -P 60 -r "$DB_NAME" > "$PGBENCH_OUT" 2>&1
-PGBENCH_EXIT=$?
+sudo -u postgres pgbench -c "$THREADS" -j "$THREADS" -T "$DURATION_SEC" -P 60 -r "$DB_NAME" 2>&1 | tee "$PGBENCH_OUT"
+PGBENCH_EXIT=${PIPESTATUS[0]}
 
-# Останавливаем сбор метрик
 stop_metrics
 
 if [ $PGBENCH_EXIT -ne 0 ]; then
     echo "Ошибка выполнения pgbench. Код: $PGBENCH_EXIT"
-    cat "$PGBENCH_OUT"
     exit $PGBENCH_EXIT
 fi
 
-# === Формирование отчёта ===
 echo ""
 echo "================== ОТЧЁТ О ТЕСТИРОВАНИИ =================="
 echo "Длительность: $MINUTES мин, потоков: $THREADS"
 echo "-----------------------------------------------------------"
 
-# 1. Результаты pgbench (TPS и задержки)
 echo "--- Результаты pgbench ---"
 grep -E "tps =|latency average|latency stddev" "$PGBENCH_OUT" | head -5
 echo ""
 
-# 2. CPU (средние и максимальные)
 echo "--- Загрузка CPU ---"
 CPU_AVG=$(sar -u -f "$SAR_CPU_LOG" | grep Average | tail -1)
 if [ -n "$CPU_AVG" ]; then
     echo "Средние: $CPU_AVG"
-else
-    echo "Нет данных для CPU (средние)"
 fi
 CPU_DATA=$(sar -u -f "$SAR_CPU_LOG" | grep -v Average | grep -v Linux | grep -v "^$" | tail -n +4)
 if [ -n "$CPU_DATA" ]; then
@@ -99,13 +85,10 @@ if [ -n "$CPU_DATA" ]; then
 fi
 echo ""
 
-# 3. Память (средние и максимальные %memused)
 echo "--- Использование ОЗУ ---"
 MEM_AVG=$(sar -r -f "$SAR_MEM_LOG" | grep Average | tail -1)
 if [ -n "$MEM_AVG" ]; then
     echo "Средние: $MEM_AVG"
-else
-    echo "Нет данных для памяти (средние)"
 fi
 MEM_DATA=$(sar -r -f "$SAR_MEM_LOG" | grep -v Average | grep -v Linux | grep -v "^$" | tail -n +4)
 if [ -n "$MEM_DATA" ]; then
@@ -114,7 +97,6 @@ if [ -n "$MEM_DATA" ]; then
 fi
 echo ""
 
-# 4. Диск (средние и максимальные %util, tps, rkB/s, wkB/s)
 echo "--- Нагрузка на диск (${DISK_DEV:-все устройства}) ---"
 if [ -n "$DISK_DEV" ]; then
     DISK_DATA=$(sar -d -p -f "$SAR_DISK_LOG" | grep -w "$DISK_DEV" | grep -v Average)
@@ -135,7 +117,6 @@ if [ -n "$DISK_DATA" ]; then
 fi
 echo ""
 
-# Очистка временных файлов (оставляем лог pgbench)
 rm -f "$SAR_CPU_LOG" "$SAR_MEM_LOG" "$SAR_DISK_LOG"
-echo "Временные файлы sar удалены. Лог pgbench: $PGBENCH_OUT"
+echo "Временные файлы sar удалены. Полный лог pgbench: $PGBENCH_OUT"
 echo "================== КОНЕЦ ОТЧЁТА =================="

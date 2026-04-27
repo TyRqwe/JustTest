@@ -57,7 +57,8 @@ stop_metrics() {
 # Запуск pgbench
 echo "Запуск pgbench..."
 PGBENCH_OUT="/tmp/pgbench_${TIMESTAMP}.out"
-sudo -u postgres pgbench -c "$THREADS" -j "$THREADS" -T "$DURATION_SEC" -P 60 -r "$DB_NAME" > "$PGBENCH_OUT" 2>&1
+sudo -u postgres pgbench -c "$THREADS" -j "$THREADS" -T "$DURATION_SEC" -P 60 -r "$DB_NAME" 2>&1 | tee "$PGBENCH_OUT"
+PGBENCH_EXIT=${PIPESTATUS[0]}
 PGBENCH_EXIT=$?
 
 # Останавливаем сбор метрик

@@ -28,4 +28,4 @@ sudo -u postgres pgbench -i -s "$SCALE" "$DB_NAME"
 
 echo "=== Подготовка завершена. ==="
 echo "Тестовая БД: $DB_NAME"
-echo "Для нагрузочного тестирования используйте скрипт run_benchmark_ubuntu.sh"
+echo "Для нагрузочного тестирования используйте скрипт Ubuntu_run.sh"

@@ -56,9 +56,6 @@ fi
 if [ -f "$OUTPUT_FILE" ]; then
     TRANSACTIONS=$(grep -oP 'number of transactions actually processed: \K[0-9]+' "$OUTPUT_FILE" | head -1)
     TPS=$(grep -oP 'tps = \K[0-9.]+' "$OUTPUT_FILE" | head -1)
-    echo "--- Вывод pgbench ---"
-    grep -v '^pgbench: client' "$OUTPUT_FILE"
-    echo "--- Конец вывода pgbench ---"
 fi
 
 [ -z "$TRANSACTIONS" ] && TRANSACTIONS=0

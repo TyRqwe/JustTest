@@ -29,7 +29,6 @@ chmod 644 "$TXN_FILE"
 
 OUTPUT_FILE="/tmp/pgbench_multi.out"
 start_time=$(date +%s)
-# Запуск с фиксированной длительностью -T, без -t
 sudo -u postgres pgbench -d "$DB_NAME" -f "$TXN_FILE" -c $THREADS -j $THREADS -T $TIMEOUT_SEC -n > "$OUTPUT_FILE" 2>&1
 EXIT_CODE=$?
 end_time=$(date +%s)
@@ -45,6 +44,7 @@ fi
 
 rm -f "$TXN_FILE" "$OUTPUT_FILE"
 
+# TPS на поток
 if [ -n "$TPS" ] && [ "$THREADS" -gt 0 ]; then
     TPS_PER_THREAD=$(echo "scale=2; $TPS / $THREADS" | bc 2>/dev/null || echo "N/A")
 else
@@ -52,15 +52,18 @@ else
 fi
 
 echo ""
-echo "================== РЕЗУЛЬТАТ МНОГОПОТОЧНОГО ТЕСТА =================="
-echo "Количество потоков:       $THREADS"
-echo "Длительность теста:       ${TIMEOUT_SEC} сек"
+echo "==================== РЕЗУЛЬТАТ ТЕСТА ===================="
+echo "Тип теста:               многопоточный (агрегация)"
+echo "Количество потоков:      $THREADS"
+if [ $EXIT_CODE -eq 124 ]; then
+    echo "Статус:                  прерван по таймауту (${TIMEOUT_SEC} сек)"
+else
+    echo "Статус:                  завершён"
+fi
+echo "Длительность теста:      ${TIMEOUT_SEC} сек"
 echo "Выполнено операций:       $TRANSACTIONS"
 if [ -n "$TPS" ]; then
-    echo "Суммарный TPS:            $TPS"
-    [ "$TPS_PER_THREAD" != "N/A" ] && echo "TPS на один поток:        ≈ $TPS_PER_THREAD"
+    echo "TPS (суммарный):         $TPS"
+    [ "$TPS_PER_THREAD" != "N/A" ] && echo "TPS (на один поток):      ≈ $TPS_PER_THREAD"
 fi
-if [ $EXIT_CODE -ne 0 ]; then
-    echo "⚠️ Тест завершился с ошибкой (код $EXIT_CODE)"
-fi
-echo "====================================================================="
+echo "========================================================"

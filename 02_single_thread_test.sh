@@ -8,16 +8,15 @@ TIMEOUT_SEC=300
 echo "=== Однопоточный тест (1 поток, 5 минут) ==="
 echo "Проверяем производительность ядра CPU..."
 
-# Проверяем, существует ли таблица
 MAX_ID=$(sudo -u postgres psql -d "$DB_NAME" -t -c "SELECT MAX(id) FROM $TABLE_NAME;" | xargs)
 if [ -z "$MAX_ID" ] || [ "$MAX_ID" -eq 0 ]; then
     echo "Ошибка: таблица $TABLE_NAME пуста или не существует."
-    echo "Убедитесь, что вы выполнили sudo ./01_setup_db.sh перед тестом."
+    echo "Запустите сначала: sudo ./01_setup_db.sh"
     exit 1
 fi
 
-# Создаём временный файл транзакции
-TXN_FILE=$(mktemp)
+# Создаём файл скрипта с доступом postgres
+TXN_FILE="/tmp/pgbench_single_$$.sql"
 cat > "$TXN_FILE" <<EOF
 \set id random(1, $MAX_ID)
 UPDATE $TABLE_NAME
@@ -25,9 +24,9 @@ SET col4 = col1 + col2 + col3,
     col5 = col1::TEXT || col2::TEXT || col3::TEXT
 WHERE id = :id;
 EOF
+chmod 644 "$TXN_FILE"
 
-echo "Запуск pgbench (показывает прогресс каждые 10 сек, тест идёт до ${TIMEOUT_SEC} сек)..."
-# Запуск с выводом в консоль (через tee), чтобы видеть ход
+echo "Запуск pgbench (прогресс каждые 10 сек, тест до ${TIMEOUT_SEC} сек)..."
 sudo -u postgres pgbench -d "$DB_NAME" \
     -f "$TXN_FILE" \
     -c 1 -j 1 \
@@ -35,7 +34,6 @@ sudo -u postgres pgbench -d "$DB_NAME" \
     -P 10 \
     -n 2>&1 | tee /tmp/pgbench_single.out
 
-# Извлекаем результаты
 TPS=$(grep -oP 'tps = \K[0-9.]+' /tmp/pgbench_single.out | head -1)
 TRANSACTIONS=$(grep -oP 'number of transactions actually processed: \K[0-9]+' /tmp/pgbench_single.out)
 ACTUAL_TIME=$(grep -oP 'duration: \K[0-9]+' /tmp/pgbench_single.out)

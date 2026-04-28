@@ -28,12 +28,12 @@ EOF
 chmod 644 "$TXN_FILE"
 
 echo "Запуск pgbench с агрегационными запросами (прогресс каждые 10 сек)..."
-timeout $TIMEOUT_SEC sudo -u postgres pgbench -d "$DB_NAME" \
+( timeout $TIMEOUT_SEC sudo -u postgres pgbench -d "$DB_NAME" \
     -f "$TXN_FILE" \
     -c $THREADS -j $THREADS \
     -t $TARGET_TRANSACTIONS \
-    -P 10 -n > /tmp/pgbench_multi.out 2>&1
-EXIT_CODE=$?
+    -P 10 -n 2>&1 ) | tee /tmp/pgbench_multi.out
+EXIT_CODE=${PIPESTATUS[0]}
 
 if [ $EXIT_CODE -eq 124 ]; then
     echo "⚠️ Тест прерван по таймауту (${TIMEOUT_SEC} сек)"

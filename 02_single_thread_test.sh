@@ -25,21 +25,27 @@ EOF
 chmod 644 "$TXN_FILE"
 
 OUTPUT_FILE="/tmp/pgbench_single.out"
+start_time=$(date +%s)
 echo "Запуск pgbench (прогресс каждые 10 сек)..."
-# Фильтруем строки "pgbench: client" (отладочный вывод)
-timeout $TIMEOUT_SEC sh -c "sudo -u postgres pgbench -d '$DB_NAME' -f '$TXN_FILE' -c 1 -j 1 -t $TARGET_TRANSACTIONS -P 10 -n 2>&1 | grep -v '^pgbench: client' | tee '$OUTPUT_FILE'"
+timeout $TIMEOUT_SEC sh -c "sudo -u postgres pgbench -d '$DB_NAME' -f '$TXN_FILE' -c 1 -j 1 -t $TARGET_TRANSACTIONS -P 10 -n 2>&1 | grep -v '^pgbench: client' | grep -v '^SET\|^UPDATE\|^INSERT\|^DELETE\|^SELECT' | tee '$OUTPUT_FILE'"
 EXIT_CODE=$?
+end_time=$(date +%s)
+elapsed=$((end_time - start_time))
 
-# Извлечение данных
+# Если тест завершился по таймауту, то elapsed = TIMEOUT_SEC, но если прерван раньше timeout - но наш timeout - это защита, реальное время меньше или равно TIMEOUT_SEC
+if [ $EXIT_CODE -eq 124 ]; then
+    # Таймаут сработал, но pgbench мог выполнить часть транзакций
+    actual_time=$TIMEOUT_SEC
+else
+    actual_time=$elapsed
+fi
+
 if [ -f "$OUTPUT_FILE" ]; then
     TRANSACTIONS=$(grep -oP 'number of transactions actually processed: \K[0-9]+' "$OUTPUT_FILE" | head -1)
-    ACTUAL_TIME=$(grep -oP 'duration: \K[0-9]+' "$OUTPUT_FILE" | head -1)
     TPS=$(grep -oP 'tps = \K[0-9.]+' "$OUTPUT_FILE" | head -1)
 fi
 
-# Если не удалось извлечь (например, таймаут), ставим значения по умолчанию
 [ -z "$TRANSACTIONS" ] && TRANSACTIONS=0
-[ -z "$ACTUAL_TIME" ] && ACTUAL_TIME=$TIMEOUT_SEC
 [ -z "$TPS" ] && TPS=""
 
 rm -f "$TXN_FILE" "$OUTPUT_FILE"
@@ -50,7 +56,7 @@ echo "Целевое число операций:   $TARGET_TRANSACTIONS"
 if [ $EXIT_CODE -eq 124 ]; then
     echo "⚠️ Тест прерван по таймауту (${TIMEOUT_SEC} сек), целевое не достигнуто"
 elif [ $EXIT_CODE -eq 0 ]; then
-    echo "✅ Тест завершён за ${ACTUAL_TIME} сек (все транзакции выполнены)"
+    echo "✅ Тест завершён за ${actual_time} сек (все транзакции выполнены)"
 else
     echo "⚠️ Тест завершился с ошибкой (код $EXIT_CODE)"
 fi

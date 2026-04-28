@@ -3,7 +3,8 @@ set -e
 
 echo "=== Установка PostgreSQL и инструментов ==="
 sudo apt update
-sudo apt install -y postgresql postgresql-contrib pgbench bc
+# Исправлено: убран pgbench из списка, т.к. он входит в postgresql-contrib
+sudo apt install -y postgresql postgresql-contrib bc
 
 sudo systemctl enable postgresql
 sudo systemctl start postgresql

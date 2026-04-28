@@ -6,7 +6,7 @@ TABLE_NAME="test_data"
 TARGET_TRANSACTIONS=${TARGET_TRANSACTIONS:-500000}
 TIMEOUT_SEC=300
 
-echo "=== Однопоточный тест (1 поток, UPDATE, цель: $TARGET_TRANSACTIONS транзакций) ==="
+echo "=== Однопоточный тест (1 поток, цель: $TARGET_TRANSACTIONS UPDATE) ==="
 echo "Скрипт выполняется до ${TIMEOUT_SEC} секунд. Пожалуйста, ожидайте..."
 
 MAX_ID=$(sudo -u postgres psql -d "$DB_NAME" -t -c "SELECT MAX(id) FROM $TABLE_NAME;" | xargs)
@@ -49,19 +49,17 @@ fi
 rm -f "$TXN_FILE" "$OUTPUT_FILE"
 
 echo ""
-echo "==================== РЕЗУЛЬТАТ ТЕСТА ===================="
-echo "Тип теста:               однопоточный (UPDATE)"
-echo "Количество потоков:      1"
+echo "================== РЕЗУЛЬТАТ ОДНОПОТОЧНОГО ТЕСТА =================="
+echo "Целевое число операций:   $TARGET_TRANSACTIONS"
 if [ $EXIT_CODE -eq 124 ]; then
-    echo "Статус:                  прерван по таймауту (${TIMEOUT_SEC} сек)"
-    echo "Целевое число операций:  $TARGET_TRANSACTIONS (не достигнуто)"
+    echo "⚠️ Тест прерван по таймауту (${TIMEOUT_SEC} сек), целевое не достигнуто"
+elif [ $EXIT_CODE -eq 0 ]; then
+    echo "✅ Тест завершён за ${actual_time} сек (все транзакции выполнены)"
 else
-    echo "Статус:                  завершён"
-    echo "Целевое число операций:  $TARGET_TRANSACTIONS"
+    echo "⚠️ Тест завершился с ошибкой (код $EXIT_CODE)"
 fi
-echo "Время выполнения:        ${actual_time} сек"
 echo "Выполнено операций:       $TRANSACTIONS"
 if [ -n "$TPS" ]; then
-    echo "TPS (средний):           $TPS"
+    echo "Средняя производительность: $TPS транз/сек"
 fi
-echo "========================================================"
+echo "================================================================"

@@ -27,7 +27,7 @@ chmod 644 "$TXN_FILE"
 OUTPUT_FILE="/tmp/pgbench_single.out"
 start_time=$(date +%s)
 echo "Запуск pgbench (прогресс каждые 10 сек)..."
-timeout $TIMEOUT_SEC sh -c "sudo -u postgres pgbench -d '$DB_NAME' -f '$TXN_FILE' -c 1 -j 1 -t $TARGET_TRANSACTIONS -P 10 -n 2>&1 | grep -v '^pgbench: client' | grep -v '^SET\|^UPDATE\|^INSERT\|^DELETE\|^SELECT' | tee '$OUTPUT_FILE'"
+timeout $TIMEOUT_SEC sh -c "sudo -u postgres pgbench -d '$DB_NAME' -f '$TXN_FILE' -c 1 -j 1 -t $TARGET_TRANSACTIONS -P 10 -n 2>&1 | grep -v '^pgbench: client' | grep -v '^SET\|^UPDATE\|^INSERT\|^DELETE\|^SELECT\|^WHERE' | tee '$OUTPUT_FILE'"
 EXIT_CODE=$?
 end_time=$(date +%s)
 elapsed=$((end_time - start_time))

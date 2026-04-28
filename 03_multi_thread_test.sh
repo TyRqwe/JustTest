@@ -30,7 +30,7 @@ chmod 644 "$TXN_FILE"
 OUTPUT_FILE="/tmp/pgbench_multi.out"
 start_time=$(date +%s)
 echo "Запуск pgbench с агрегационными запросами (прогресс каждые 10 сек)..."
-timeout $TIMEOUT_SEC sh -c "sudo -u postgres pgbench -d '$DB_NAME' -f '$TXN_FILE' -c $THREADS -j $THREADS -t $TARGET_TRANSACTIONS -P 10 -n 2>&1 | grep -v '^pgbench: client' | grep -vE '^SELECT|col1, SUM|FROM test_data|WHERE id|GROUP BY' | tee '$OUTPUT_FILE'"
+timeout $TIMEOUT_SEC sh -c "sudo -u postgres stdbuf -oL -eL pgbench -d '$DB_NAME' -f '$TXN_FILE' -c $THREADS -j $THREADS -t $TARGET_TRANSACTIONS -P 10 -n 2>&1 | grep -v '^pgbench: client' | grep -vE '^SELECT|col1, SUM|FROM test_data|WHERE id|GROUP BY' | tee '$OUTPUT_FILE'"
 EXIT_CODE=$?
 end_time=$(date +%s)
 elapsed=$((end_time - start_time))

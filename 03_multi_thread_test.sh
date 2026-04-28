@@ -30,42 +30,36 @@ chmod 644 "$TXN_FILE"
 
 OUTPUT_FILE="/tmp/pgbench_multi.out"
 start_time=$(date +%s)
-sudo -u postgres pgbench -d "$DB_NAME" -f "$TXN_FILE" -c $THREADS -j $THREADS -t $TARGET_TRANSACTIONS -n > "$OUTPUT_FILE" 2>&1 &
-PGBENCH_PID=$!
-
-(
-    sleep $TIMEOUT_SEC
-    kill -TERM $PGBENCH_PID 2>/dev/null
-) &
-TIMEOUT_PID=$!
-
-wait $PGBENCH_PID
+# Запускаем pgbench, подавляем stderr, но stdout сохраняем; таймаут через timeout
+timeout $TIMEOUT_SEC sudo -u postgres pgbench -d "$DB_NAME" -f "$TXN_FILE" -c $THREADS -j $THREADS -t $TARGET_TRANSACTIONS -n > "$OUTPUT_FILE" 2>/dev/null
 EXIT_CODE=$?
-kill -9 $TIMEOUT_PID 2>/dev/null
-
 end_time=$(date +%s)
 elapsed=$((end_time - start_time))
 
-if [ $EXIT_CODE -ne 0 ] && [ $elapsed -ge $TIMEOUT_SEC ]; then
-    EXIT_CODE=124
-fi
-
+# Определяем фактическое время выполнения
 if [ $EXIT_CODE -eq 124 ]; then
     actual_time=$TIMEOUT_SEC
+    timed_out=true
 else
     actual_time=$elapsed
+    timed_out=false
 fi
 
-if [ -f "$OUTPUT_FILE" ]; then
+# Пытаемся извлечь данные из выходного файла
+if [ -f "$OUTPUT_FILE" ] && [ -s "$OUTPUT_FILE" ]; then
     TRANSACTIONS=$(grep -oP 'number of transactions actually processed: \K[0-9]+' "$OUTPUT_FILE" | head -1)
     TPS=$(grep -oP 'tps = \K[0-9.]+' "$OUTPUT_FILE" | head -1)
 fi
 
-[ -z "$TRANSACTIONS" ] && TRANSACTIONS=0
-[ -z "$TPS" ] && TPS=""
+# Если данные не извлеклись, значит тест не дал корректного результата
+if [ -z "$TRANSACTIONS" ]; then
+    TRANSACTIONS=0
+    TPS=""
+fi
 
 rm -f "$TXN_FILE" "$OUTPUT_FILE"
 
+# Вычисляем TPS на один поток, если возможно
 if [ -n "$TPS" ] && [ "$THREADS" -gt 0 ]; then
     TPS_PER_THREAD=$(echo "scale=2; $TPS / $THREADS" | bc 2>/dev/null || echo "N/A")
 else
@@ -76,12 +70,14 @@ echo ""
 echo "================== РЕЗУЛЬТАТ МНОГОПОТОЧНОГО ТЕСТА =================="
 echo "Количество потоков:       $THREADS"
 echo "Целевое число операций:   $TARGET_TRANSACTIONS"
-if [ $EXIT_CODE -eq 124 ]; then
+if [ "$timed_out" = true ]; then
     echo "⚠️ Тест прерван по таймауту (${TIMEOUT_SEC} сек), целевое не достигнуто"
-elif [ $EXIT_CODE -eq 0 ]; then
+elif [ $EXIT_CODE -eq 0 ] && [ $TRANSACTIONS -gt 0 ]; then
     echo "✅ Тест завершён за ${actual_time} сек (все транзакции выполнены)"
-else
+elif [ $EXIT_CODE -ne 0 ]; then
     echo "⚠️ Тест завершился с ошибкой (код $EXIT_CODE)"
+else
+    echo "⚠️ Тест завершён, но не удалось извлечь результаты (возможно, ни одной транзакции не выполнено)"
 fi
 echo "Выполнено операций:       $TRANSACTIONS"
 if [ -n "$TPS" ]; then

@@ -10,7 +10,8 @@ CPUS=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo)
 THREADS=${THREADS:-$CPUS}
 [ $THREADS -lt 1 ] && THREADS=4
 
-echo "=== Многопоточный тест ($THREADS потоков, цель: $TARGET_TRANSACTIONS агрегаций, таймаут ${TIMEOUT_SEC} сек) ==="
+echo "=== Многопоточный тест ($THREADS потоков, цель: $TARGET_TRANSACTIONS агрегаций) ==="
+echo "Скрипт выполняется до ${TIMEOUT_SEC} секунд. Пожалуйста, ожидайте..."
 
 MAX_ID=$(sudo -u postgres psql -d "$DB_NAME" -t -c "SELECT MAX(id) FROM $TABLE_NAME;" | xargs)
 if [ -z "$MAX_ID" ] || [ "$MAX_ID" -eq 0 ]; then
@@ -29,11 +30,25 @@ chmod 644 "$TXN_FILE"
 
 OUTPUT_FILE="/tmp/pgbench_multi.out"
 start_time=$(date +%s)
-echo "Запуск pgbench с агрегационными запросами (прогресс каждые 10 сек)..."
-timeout $TIMEOUT_SEC sh -c "sudo -u postgres stdbuf -oL -eL pgbench -d '$DB_NAME' -f '$TXN_FILE' -c $THREADS -j $THREADS -t $TARGET_TRANSACTIONS -P 10 -n 2>&1 | grep -v '^pgbench: client' | grep -vE '^SELECT|col1, SUM|FROM test_data|WHERE id|GROUP BY' | tee '$OUTPUT_FILE'"
+sudo -u postgres pgbench -d "$DB_NAME" -f "$TXN_FILE" -c $THREADS -j $THREADS -t $TARGET_TRANSACTIONS -n > "$OUTPUT_FILE" 2>&1 &
+PGBENCH_PID=$!
+
+(
+    sleep $TIMEOUT_SEC
+    kill -TERM $PGBENCH_PID 2>/dev/null
+) &
+TIMEOUT_PID=$!
+
+wait $PGBENCH_PID
 EXIT_CODE=$?
+kill -9 $TIMEOUT_PID 2>/dev/null
+
 end_time=$(date +%s)
 elapsed=$((end_time - start_time))
+
+if [ $EXIT_CODE -ne 0 ] && [ $elapsed -ge $TIMEOUT_SEC ]; then
+    EXIT_CODE=124
+fi
 
 if [ $EXIT_CODE -eq 124 ]; then
     actual_time=$TIMEOUT_SEC
@@ -44,6 +59,9 @@ fi
 if [ -f "$OUTPUT_FILE" ]; then
     TRANSACTIONS=$(grep -oP 'number of transactions actually processed: \K[0-9]+' "$OUTPUT_FILE" | head -1)
     TPS=$(grep -oP 'tps = \K[0-9.]+' "$OUTPUT_FILE" | head -1)
+    echo "--- Вывод pgbench ---"
+    grep -v '^pgbench: client' "$OUTPUT_FILE"
+    echo "--- Конец вывода pgbench ---"
 fi
 
 [ -z "$TRANSACTIONS" ] && TRANSACTIONS=0

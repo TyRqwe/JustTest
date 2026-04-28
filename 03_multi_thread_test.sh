@@ -28,31 +28,28 @@ EOF
 chmod 644 "$TXN_FILE"
 
 echo "Запуск pgbench с агрегационными запросами (прогресс каждые 10 сек)..."
-( timeout $TIMEOUT_SEC sudo -u postgres pgbench -d "$DB_NAME" \
-    -f "$TXN_FILE" \
-    -c $THREADS -j $THREADS \
-    -t $TARGET_TRANSACTIONS \
-    -P 10 -n 2>&1 ) | tee /tmp/pgbench_multi.out
-EXIT_CODE=${PIPESTATUS[0]}
+OUTPUT_FILE="/tmp/pgbench_multi.out"
+timeout $TIMEOUT_SEC sh -c "sudo -u postgres pgbench -d '$DB_NAME' -f '$TXN_FILE' -c $THREADS -j $THREADS -t $TARGET_TRANSACTIONS -P 10 -n 2>&1 | tee '$OUTPUT_FILE'"
+EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 124 ]; then
     echo "⚠️ Тест прерван по таймауту (${TIMEOUT_SEC} сек)"
-    TRANSACTIONS=$(grep -oP 'number of transactions actually processed: \K[0-9]+' /tmp/pgbench_multi.out | head -1)
+    TRANSACTIONS=$(grep -oP 'number of transactions actually processed: \K[0-9]+' "$OUTPUT_FILE" | head -1)
     ACTUAL_TIME=$TIMEOUT_SEC
-    TPS=$(grep -oP 'tps = \K[0-9.]+' /tmp/pgbench_multi.out | head -1)
+    TPS=$(grep -oP 'tps = \K[0-9.]+' "$OUTPUT_FILE" | head -1)
+    [ -z "$TRANSACTIONS" ] && TRANSACTIONS=0
     COMPLETED="no"
 else
-    TRANSACTIONS=$(grep -oP 'number of transactions actually processed: \K[0-9]+' /tmp/pgbench_multi.out)
-    ACTUAL_TIME=$(grep -oP 'duration: \K[0-9]+' /tmp/pgbench_multi.out)
-    TPS=$(grep -oP 'tps = \K[0-9.]+' /tmp/pgbench_multi.out | head -1)
+    TRANSACTIONS=$(grep -oP 'number of transactions actually processed: \K[0-9]+' "$OUTPUT_FILE")
+    ACTUAL_TIME=$(grep -oP 'duration: \K[0-9]+' "$OUTPUT_FILE")
+    TPS=$(grep -oP 'tps = \K[0-9.]+' "$OUTPUT_FILE" | head -1)
     COMPLETED="yes"
 fi
 
-if [ -z "$TRANSACTIONS" ]; then
-    TRANSACTIONS=0
-fi
+[ -z "$TRANSACTIONS" ] && TRANSACTIONS=0
+[ -z "$ACTUAL_TIME" ] && ACTUAL_TIME=$TIMEOUT_SEC
 
-rm -f "$TXN_FILE" /tmp/pgbench_multi.out
+rm -f "$TXN_FILE" "$OUTPUT_FILE"
 
 if [ -n "$TPS" ] && [ "$THREADS" -gt 0 ]; then
     TPS_PER_THREAD=$(echo "scale=2; $TPS / $THREADS" | bc 2>/dev/null || echo "N/A")
@@ -72,8 +69,6 @@ fi
 echo "Выполнено операций:       $TRANSACTIONS"
 if [ -n "$TPS" ]; then
     echo "Суммарный TPS:            $TPS"
-    if [ "$TPS_PER_THREAD" != "N/A" ]; then
-        echo "TPS на один поток:        ≈ $TPS_PER_THREAD"
-    fi
+    [ "$TPS_PER_THREAD" != "N/A" ] && echo "TPS на один поток:        ≈ $TPS_PER_THREAD"
 fi
 echo "====================================================================="

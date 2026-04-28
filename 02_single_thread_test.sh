@@ -26,24 +26,18 @@ chmod 644 "$TXN_FILE"
 
 echo "Запуск pgbench (прогресс каждые 10 сек)..."
 OUTPUT_FILE="/tmp/pgbench_single.out"
-# Запускаем pgbench с таймаутом, вывод дублируем в консоль и файл
-timeout $TIMEOUT_SEC bash -c "sudo -u postgres pgbench -d '$DB_NAME' -f '$TXN_FILE' -c 1 -j 1 -t $TARGET_TRANSACTIONS -P 10 -q -n 2>&1 | tee '$OUTPUT_FILE'"
+# Убираем -q, оставляем -P 10 для прогресса
+timeout $TIMEOUT_SEC sh -c "sudo -u postgres pgbench -d '$DB_NAME' -f '$TXN_FILE' -c 1 -j 1 -t $TARGET_TRANSACTIONS -P 10 -n 2>&1 | tee '$OUTPUT_FILE'"
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 124 ]; then
-    # Таймаут: pgbench не успел выполнить все транзакции
     echo "⚠️ Тест прерван по таймауту (${TIMEOUT_SEC} сек)"
     TRANSACTIONS=$(grep -oP 'number of transactions actually processed: \K[0-9]+' "$OUTPUT_FILE" | head -1)
     ACTUAL_TIME=$TIMEOUT_SEC
     TPS=$(grep -oP 'tps = \K[0-9.]+' "$OUTPUT_FILE" | head -1)
-    if [ -z "$TRANSACTIONS" ]; then
-        # Если pgbench не успел вывести статистику, пробуем извлечь из прогресса
-        TRANSACTIONS=$(grep -oP 'progress: .*? (\d+) tps' "$OUTPUT_FILE" | tail -1 | awk '{print $(NF-1)}')
-        [ -z "$TRANSACTIONS" ] && TRANSACTIONS=0
-    fi
+    [ -z "$TRANSACTIONS" ] && TRANSACTIONS=0
     COMPLETED="no"
 else
-    # Нормальное завершение (или ошибка, но pgbench вывел статистику)
     TRANSACTIONS=$(grep -oP 'number of transactions actually processed: \K[0-9]+' "$OUTPUT_FILE")
     ACTUAL_TIME=$(grep -oP 'duration: \K[0-9]+' "$OUTPUT_FILE")
     TPS=$(grep -oP 'tps = \K[0-9.]+' "$OUTPUT_FILE" | head -1)

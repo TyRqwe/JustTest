@@ -24,38 +24,35 @@ WHERE id = :id;
 EOF
 chmod 644 "$TXN_FILE"
 
-echo "Запуск pgbench (прогресс каждые 10 сек)..."
 OUTPUT_FILE="/tmp/pgbench_single.out"
-# Убираем -q, оставляем -P 10 для прогресса
-timeout $TIMEOUT_SEC sh -c "sudo -u postgres pgbench -d '$DB_NAME' -f '$TXN_FILE' -c 1 -j 1 -t $TARGET_TRANSACTIONS -P 10 -n 2>&1 | tee '$OUTPUT_FILE'"
+echo "Запуск pgbench (прогресс каждые 10 сек)..."
+# Фильтруем строки "pgbench: client" (отладочный вывод)
+timeout $TIMEOUT_SEC sh -c "sudo -u postgres pgbench -d '$DB_NAME' -f '$TXN_FILE' -c 1 -j 1 -t $TARGET_TRANSACTIONS -P 10 -n 2>&1 | grep -v '^pgbench: client' | tee '$OUTPUT_FILE'"
 EXIT_CODE=$?
 
-if [ $EXIT_CODE -eq 124 ]; then
-    echo "⚠️ Тест прерван по таймауту (${TIMEOUT_SEC} сек)"
+# Извлечение данных
+if [ -f "$OUTPUT_FILE" ]; then
     TRANSACTIONS=$(grep -oP 'number of transactions actually processed: \K[0-9]+' "$OUTPUT_FILE" | head -1)
-    ACTUAL_TIME=$TIMEOUT_SEC
+    ACTUAL_TIME=$(grep -oP 'duration: \K[0-9]+' "$OUTPUT_FILE" | head -1)
     TPS=$(grep -oP 'tps = \K[0-9.]+' "$OUTPUT_FILE" | head -1)
-    [ -z "$TRANSACTIONS" ] && TRANSACTIONS=0
-    COMPLETED="no"
-else
-    TRANSACTIONS=$(grep -oP 'number of transactions actually processed: \K[0-9]+' "$OUTPUT_FILE")
-    ACTUAL_TIME=$(grep -oP 'duration: \K[0-9]+' "$OUTPUT_FILE")
-    TPS=$(grep -oP 'tps = \K[0-9.]+' "$OUTPUT_FILE" | head -1)
-    COMPLETED="yes"
 fi
 
+# Если не удалось извлечь (например, таймаут), ставим значения по умолчанию
 [ -z "$TRANSACTIONS" ] && TRANSACTIONS=0
 [ -z "$ACTUAL_TIME" ] && ACTUAL_TIME=$TIMEOUT_SEC
+[ -z "$TPS" ] && TPS=""
 
 rm -f "$TXN_FILE" "$OUTPUT_FILE"
 
 echo ""
 echo "================== РЕЗУЛЬТАТ ОДНОПОТОЧНОГО ТЕСТА =================="
 echo "Целевое число операций:   $TARGET_TRANSACTIONS"
-if [ "$COMPLETED" = "yes" ]; then
-    echo "✅ Тест завершён досрочно за ${ACTUAL_TIME} сек"
-else
+if [ $EXIT_CODE -eq 124 ]; then
     echo "⚠️ Тест прерван по таймауту (${TIMEOUT_SEC} сек), целевое не достигнуто"
+elif [ $EXIT_CODE -eq 0 ]; then
+    echo "✅ Тест завершён за ${ACTUAL_TIME} сек (все транзакции выполнены)"
+else
+    echo "⚠️ Тест завершился с ошибкой (код $EXIT_CODE)"
 fi
 echo "Выполнено операций:       $TRANSACTIONS"
 if [ -n "$TPS" ]; then
